@@ -483,7 +483,7 @@ var pjs = (function(){
                 },
                 onAlert: function(msg) { log.alert('CLIENT: ' + msg); }
             });
-
+            
             // add waitFor method
             page.waitFor = function(test, callback) {
                 // check for short-circuit
@@ -689,8 +689,30 @@ var pjs = (function(){
                         return;
                     }
                     // look for 4xx or 5xx status codes
-                    var statusCodeStart = page.resource && String(page.resource.status).charAt(0);
-                    if (statusCodeStart == '4' || statusCodeStart == '5') {
+                    var statusCodeStart = page.resource && String(page.resource.status).charAt(0), cloudflare=false, userDelay = config.delayBetweenRuns;
+                    
+                    // Check for CloudFlares Layer 7 DDoS Protection
+                    if(page.resource.status == '503') {
+                        // is it CloudFlare or regular 503?
+                        cloudflare = page.evaluate(function() {return document.getElementsByTagName("h1")[0].innerHTML.indexOf('Checking your browser before accessing');});
+                        if(cloudflare){
+                            log.msg('Page protected by CloudFlares Layer 7 DDoS Protection ... bypassing');
+                            //over-ride user settings to wait for CloudFlare, then set it back
+                            if(config.delayBetweenRuns<6000){
+                                setTimeout(function(){
+                                    config.delayBetweenRuns = userDelay;
+                                },6100);
+                                config.delayBetweenRuns = 6000;
+                            }
+                            //scrape this url again, next time with clearence cookie
+                            suite.urls.push(url);
+                            // nothing to scrape for now
+                            complete(false); 
+                            return;
+                        }
+
+                    }
+                    if (statusCodeStart == '4' || (statusCodeStart == '5' && !cloudflare)) {
                         if (page.resource.status == 404) {
                             log.error('Page not found: ' + url);
                         } else {
@@ -726,7 +748,7 @@ var pjs = (function(){
                             if (opts.loadScript) {
                                 opts.loadScript.forEach(function(script) {
                                     page.injectJs(script);
-                                });
+                                }); 
                             }
                             // run prescrape
                             page.evaluate(opts.preScrape);
